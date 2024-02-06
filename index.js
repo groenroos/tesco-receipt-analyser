@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import moment from 'moment';
 import express from 'express';
-const app = express();
+import getPort from 'get-port';
+import open from 'open';
 
-const data = JSON.parse(fs.readFileSync('./data.json'));
-
+/* Format a number as a pound sterling figure */
 const formatMoney = function (amount) {
 	const sterling = new Intl.NumberFormat('en-GB', {
 		style: 'currency',
@@ -13,6 +13,24 @@ const formatMoney = function (amount) {
 
 	return sterling.format(amount);
 };
+
+/* Load receipt data */
+const getJson = (file) => {
+	try {
+		return JSON.parse(fs.readFileSync(file));
+	} catch (error) {
+		return error;
+	}
+}
+
+const data = getJson('./data.json');
+
+/* Exit if there was a problem */
+if (data instanceof Error) {
+	console.error(data);
+	process.exit(1);
+}
+
 
 /*
 data
@@ -39,15 +57,27 @@ const products = {};
 
 /* Go through each receipt */
 data.Purchase[0].forEach(receipt => {
+	/* Only process receipts for the past 12 months */
 	if (moment(receipt.timeStamp).isAfter(moment().subtract(1, 'years'))) {
+		/* Go through every product in the receipt */
 		receipt.product.forEach(product => {
-			const name = product.name === 'DIESEL  ' ? 'Diesel' : product.name;
-			const price = product.name === 'DIESEL  ' ? Number(receipt.basketValueGross) : Number(product.price);
+			/* Tidy up diesel name */
+			const name = ['DIESEL  ', 'City Diesel'].includes(product.name) ? 'Diesel' : product.name;
+
+			/* Normalise the price */
+			/* Note fuel price is per litre, but quantity is always 1 */
+			/* Taking full basket value as the total price, but this probably breaks if you bought fuel and other products on the same receipt */
+			const price = receipt.storeFormat === 'Petrol' ? Number(receipt.basketValueGross) : Number(product.price);
+
+			/* Normalise product quantity */
 			const quantity = Number(product.quantity);
+
+			/* Normalise receipt date */
 			const date = moment(receipt.timeStamp);
 
 			if (name in products) {
-				products[name].totalSpent += price;
+				/* If product exists, merge this instance */
+				products[name].totalSpent += price * quantity;
 				products[name].totalQuantity += quantity;
 				products[name].purchases.push({
 					quantity,
@@ -55,8 +85,9 @@ data.Purchase[0].forEach(receipt => {
 					date,
 				});
 			} else {
+				/* If product is new, create new entry */
 				products[name] = {
-					totalSpent: price,
+					totalSpent: price * quantity,
 					totalQuantity: quantity,
 					purchases: [
 						{
@@ -78,29 +109,94 @@ for (const product in products) {
 	});
 }
 
-/* Get 20 most bought products */
+/* Sort products by total spend */
 const topBuys = Object.keys(products).sort((a,b) => {
 	return products[b].totalSpent - products[a].totalSpent;
 }).map(buy => {
+	/* All prices ever paid for this product */
+	const prices = products[buy].purchases.map(o => o.price);
+
+	/* Average price paid per item */
+	const totalPrices = prices.reduce((a,c) => a + c, 0);
+	const averagePrice = totalPrices / prices.length;
+
+	/* Format into table */
 	return {
 		product: buy,
 		qty: products[buy].totalQuantity,
-		ea: formatMoney(Math.max(...products[buy].purchases.map(o => o.price))),
+		avgEa: formatMoney(averagePrice),
+		maxEa: formatMoney(Math.max(...prices)),
+		minEa: formatMoney(Math.min(...prices)),
 		total: formatMoney(products[buy].totalSpent)
 	};
 });
 
+/* Create server */
+const app = express();
 
-
-
+/* Respond with a table */
 app.get('/', function (req, res) {
-	let content = `<html><head><title>Tesco</title></head><body>
-	<table border=1 cellpadding=4>
-	<thead><tr><th>Product</th><th align=right>Qty</th><th align=right>Ea</th><th align=right>Total spent</th></thead>
-	<tbody>`;
+	let content = `
+	<html>
+	<head>
+		<title>Tesco Receipt Analysis</title>
+		<style>
+			html {
+				font-family: Inter, SF, Arial, sans-serif;
+			}
+
+			table {
+				margin: 20px auto;
+				border-collapse: collapse;
+			}
+
+			thead {
+				position: sticky;
+				top: 0;
+			}
+
+			thead th {
+				vertical-align: bottom;
+				background: #f7f7f7;
+			}
+
+			th, td {
+				padding: 0.25em 0.5em;
+				border: 1px solid #ddd;
+			}
+		</style>
+	</head>
+	<body>
+	<table>
+		<thead>
+			<tr>
+				<th rowspan="2" align="left">Product</th>
+				<th rowspan="2" align="right">Qty</th>
+				<th colspan="3" align="center">Price each</th>
+				<th rowspan="2" align="right">Total spent</th>
+			</tr>
+			<tr>
+				<th align="right">Minimum</th>
+				<th align="right">Average</th>
+				<th align="right">Maximum</th>
+			</tr>
+		</thead>
+	<tbody>
+	`;
 
 	topBuys.forEach(t => {
-		content += `<tr><td>${t.product}</td><td align=right>${t.qty}</td><td align=right>${t.ea}</td><td align=right>${t.total}</td></tr>`;
+		if (t.qty > 0) {
+			content += `
+				<tr>
+					<td>${t.product}</td>
+					<td align="right">${t.qty}</td>
+					<td align="right">${t.minEa}</td>
+					<td align="right">${t.avgEa}</td>
+					<td align="right">${t.maxEa}</td>
+					<td align="right">${t.total}</td>
+				</tr>
+			`;
+		}
 	});
 	
 	content += `</tbody>
@@ -109,4 +205,8 @@ app.get('/', function (req, res) {
 	res.send(content);
 });
 
-app.listen(3000);
+/* Serve and open the page */
+const port = await getPort({port: 3000});
+app.listen(port);
+
+open(`http://localhost:${port}`);
