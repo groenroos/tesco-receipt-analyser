@@ -1,28 +1,13 @@
-import fs from 'node:fs';
 import moment from 'moment';
 import express from 'express';
 import getPort from 'get-port';
 import open from 'open';
 
-/* Format a number as a pound sterling figure */
-const formatMoney = function (amount) {
-	const sterling = new Intl.NumberFormat('en-GB', {
-		style: 'currency',
-		currency: 'GBP',
-	});
+import formatMoney from './utils/formatMoney.js';
+import getJson from './utils/getJson.js';
 
-	return sterling.format(amount);
-};
 
 /* Load receipt data */
-const getJson = (file) => {
-	try {
-		return JSON.parse(fs.readFileSync(file));
-	} catch (error) {
-		return error;
-	}
-}
-
 const data = getJson('./data.json');
 
 /* Exit if there was a problem */
@@ -30,7 +15,6 @@ if (data instanceof Error) {
 	console.error(data);
 	process.exit(1);
 }
-
 
 /*
 data
