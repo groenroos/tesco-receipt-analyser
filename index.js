@@ -5,6 +5,7 @@ import open from 'open';
 
 import formatMoney from './utils/formatMoney.js';
 import getJson from './utils/getJson.js';
+import guessCategory from './utils/guessCategory.js';
 
 
 /* Load receipt data */
@@ -73,6 +74,7 @@ data.Purchase[0].forEach(receipt => {
 				products[name] = {
 					totalSpent: price * quantity,
 					totalQuantity: quantity,
+					category: guessCategory(name),
 					purchases: [
 						{
 							quantity,
@@ -107,11 +109,12 @@ const topBuys = Object.keys(products).sort((a,b) => {
 	/* Format into table */
 	return {
 		product: buy,
+		category: products[buy].category,
 		qty: products[buy].totalQuantity,
 		avgEa: formatMoney(averagePrice),
 		maxEa: formatMoney(Math.max(...prices)),
 		minEa: formatMoney(Math.min(...prices)),
-		total: formatMoney(products[buy].totalSpent)
+		total: formatMoney(products[buy].totalSpent),
 	};
 });
 
@@ -155,6 +158,7 @@ app.get('/', function (req, res) {
 		<thead>
 			<tr>
 				<th rowspan="2" align="left">Product</th>
+				<th rowspan="2" align="left">Category</th>
 				<th rowspan="2" align="right">Qty</th>
 				<th colspan="3" align="center">Price each</th>
 				<th rowspan="2" align="right">Total spent</th>
@@ -173,6 +177,7 @@ app.get('/', function (req, res) {
 			content += `
 				<tr>
 					<td>${t.product}</td>
+					<td>${t.category}</td>
 					<td align="right">${t.qty}</td>
 					<td align="right">${t.minEa}</td>
 					<td align="right">${t.avgEa}</td>
